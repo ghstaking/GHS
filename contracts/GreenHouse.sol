@@ -4,7 +4,6 @@ pragma solidity ^0.8.7;
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/math/SafeCast.sol";
-
 /**
  * @title GreenHouse staking contract
  * @dev A stakable smart contract that stores ERC20 trusted token.
@@ -18,7 +17,7 @@ contract GreenHouse is Ownable {
     uint256 public everStakedUsersCount = 0;
 
     // Bonus and Monthly Reward Pools
-    uint256 public bonusRewardPool = 0;  // Bonus Reward Pool 
+    uint256 public bonusRewardPool = 0;  // Bonus Reward Pool
     uint256 public monthlyRewardPool = 0;  // Monthly Reward Pool
     mapping(address => uint256) public referralRewards;
 
@@ -29,22 +28,24 @@ contract GreenHouse is Ownable {
 
     // Reward calculation magic
     uint256 constant internal MAGNITUDE = 2**128;
-    uint256 internal _magnifiedRewardPerStake = 0; 
+
+    uint256 internal _magnifiedRewardPerStake = 0;
     mapping(address => int256) internal _magnifiedRewardCorrections;
 
     // Staking and Unstaking fees
     uint256 constant internal FEE_ALL_USERS_STAKED_PERMILLE = 700;
     uint256 constant internal FEE_BONUS_POOL_PERMILLE = 100;
     uint256 constant internal FEE_PLATFORM_WALLET_PERMILLE = 100;
+    uint256 constant internal TOKEN_DECIMAL=10**8;
     uint256 constant internal FEE_REFERRAL_PERMILLE = 50;
     uint256 constant internal FEE_PARTNER_WALLET_PERMILLE = 50;
 
     // Monthly Pool distribution and timer
     uint256 constant internal MONTHLY_POOL_DISTRIBUTE_ALL_USERS_PERCENT = 50;
-    uint256 constant internal MONYHLY_POOL_TIMER = 900; // 30 days
-    uint256 internal _monthlyPoolLastDistributedAt;
+    uint256 constant internal MONYHLY_POOL_TIMER = 86400; // 30 days  =2592000
+    uint256 internal _monthlyPoolLastDistributedAt=0;
 
-    // Bonus Pool distribution 
+    // Bonus Pool distribution
     uint256 constant internal BONUS_POOL_DISTRIBUTE_ALL_USERS_PERCENT = 40;
     uint256 constant internal BONUS_POOL_DISTRIBUTE_LEADERBOARD_PERCENT = 40;
 
@@ -55,13 +56,13 @@ contract GreenHouse is Ownable {
     uint256 internal _bonusPoolLeaderboardLast = 0;
     uint256 constant internal BONUS_POOL_LEADERBOARD_MAX_USERS_COUNT = 10;
     uint256 constant internal BONUS_POOL_LEADERBOARD_MIN_STAKE_TO_QUALIFY = 1000;
-    uint256 constant internal BONUS_POOL_LEADERBOARD_MIN_STAKE_TO_MAINTAIN_POSITION = 900; // 90% 
+    uint256 constant internal BONUS_POOL_LEADERBOARD_MIN_STAKE_TO_MAINTAIN_POSITION = 900; // 90%
 
-    // Bonus Timer settings
-    uint256 internal _bonusPoolTimer;
-    uint256 internal _bonusPoolLastDistributedAt;
-    uint256 constant internal BONUS_POOL_NEW_STAKEHOLDER_TIME_ADDITION = 60;   // 15 minutes
-    uint256 constant internal BONUS_POOL_TIMER_INITIAL = 900; // 6 hours
+// Bonus Timer settings
+uint256 internal _bonusPoolTimer;
+uint256 internal _bonusPoolLastDistributedAt=0;
+uint256 constant internal BONUS_POOL_NEW_STAKEHOLDER_TIME_ADDITION = 900;   // 15 minutes
+    uint256 constant internal BONUS_POOL_TIMER_INITIAL = 21600; // 6 hours
 
     // Platform Team wallets
     address[] internal _platformWallets;
@@ -73,48 +74,50 @@ contract GreenHouse is Ownable {
     event RewardWithdrawn(address indexed sender, uint256 amount);
     event BonusRewardPoolDistributed(uint256 amountAllUsers, uint256 amountLeaderboard);
     event MonthlyRewardPoolDistributed(uint256 amount);
-
+    event Timer(uint256 timer);
     /// @param trustedToken_ A ERC20 trustedToken to use in this contract
     /// @param partnerWallet A Partner's wallet to reward
     /// @param platformWallets List of Platform Team's wallets
     constructor(
-        address trustedToken_, 
-        address partnerWallet, 
+        address trustedToken_,
+        address partnerWallet,
         address[] memory platformWallets
     ) Ownable() {  // solhint-disable func-visibility
         // solhint-disable mark-callable-contracts
         trustedToken = IERC20(trustedToken_);
-
         _platformWallets = platformWallets;
         _partnerWallet = partnerWallet;
-
         _bonusPoolTimer = BONUS_POOL_TIMER_INITIAL;
-
-        _bonusPoolLastDistributedAt = block.timestamp;
-        _monthlyPoolLastDistributedAt = block.timestamp;
     }
 
     modifier AttemptToDistrubuteBonusPools() {
+        if(_bonusPoolLastDistributedAt == 0 && _monthlyPoolLastDistributedAt== 0){
+            _bonusPoolLastDistributedAt = block.timestamp;
+            _monthlyPoolLastDistributedAt = block.timestamp;
+        }
         _maybeDistributeMonthlyRewardPool();
         _maybeDistributeBonusRewardPool();
         _;
     }
 
-    // External functions 
+    // External functions
 
     function stake(uint256 amount, address referrer) external AttemptToDistrubuteBonusPools {
+        amount=amount*TOKEN_DECIMAL;
         require(amount != 0, "GreenHouse: staking zero");
         require(
             trustedToken.transferFrom(msg.sender, address(this), amount),
             "GreenHouse: staking transfer"
         );
-
+        require(msg.sender!=referrer,"GreenHouse: You cannot indicate yourself as a referral ");
+        if(_stakes[referrer]<100*TOKEN_DECIMAL){
+            referrer=address(0);
+        }
         if (!_hasStaked[msg.sender]) {
             _hasStaked[msg.sender] = true;
             everStakedUsersCount++;
         }
-
-        if (amount >= BONUS_POOL_LEADERBOARD_MIN_STAKE_TO_QUALIFY) {
+        if (amount >= BONUS_POOL_LEADERBOARD_MIN_STAKE_TO_QUALIFY*TOKEN_DECIMAL) {
             _bonusPoolProcessStakeholder(msg.sender);
         }
 
@@ -123,6 +126,7 @@ contract GreenHouse is Ownable {
     }
 
     function unstake(uint256 amount) external AttemptToDistrubuteBonusPools {
+        amount=amount*TOKEN_DECIMAL;
         require(amount != 0, "GreenHouse: unstaking zero");
         require(_stakes[msg.sender] >= amount, "GreenHouse: unstake amount");
 
@@ -164,8 +168,6 @@ contract GreenHouse is Ownable {
         }
         return leaderboard;
     }
-
-
     // External functions only owner
 
     function setPartnerWallet(address address_) external onlyOwner {
@@ -177,7 +179,7 @@ contract GreenHouse is Ownable {
     }
 
 
-    // Public view functions 
+    // Public view functions
 
     function stakeOf(address stakeholder) public view returns(uint256) {
         return _stakes[stakeholder];
@@ -227,7 +229,12 @@ contract GreenHouse is Ownable {
         _bonusPoolLeaderboardLast++;
         _bonusPoolLeaderboard[_bonusPoolLeaderboardLast] = value;
         _bonusPoolLeaderboardPositionsCount[value] += 1;
+        if((bonusRewardPoolCountdown()+BONUS_POOL_NEW_STAKEHOLDER_TIME_ADDITION) >= BONUS_POOL_TIMER_INITIAL){
+            _bonusPoolTimer += 0;
+        }else{
         _bonusPoolTimer += BONUS_POOL_NEW_STAKEHOLDER_TIME_ADDITION;
+        }
+        emit Timer(bonusRewardPoolCountdown()+BONUS_POOL_NEW_STAKEHOLDER_TIME_ADDITION);
     }
 
     /**
@@ -258,7 +265,7 @@ contract GreenHouse is Ownable {
                 leaderboard[ptr] = _bonusPoolLeaderboard[i];
                 ptr++;
             }
-        
+
         }
         // rebuild the whole leaderboard :'(
         while (_bonusPoolLeaderboardUsersCount() > 0)
@@ -314,8 +321,8 @@ contract GreenHouse is Ownable {
         monthlyRewardPool += amount;
     }
 
-    function _calculateFees(uint256 amount) 
-    internal pure 
+    function _calculateFees(uint256 amount)
+    internal pure
     returns(
         uint256 allUsers,
         uint256 bonusPool,
@@ -332,9 +339,9 @@ contract GreenHouse is Ownable {
         net = amount - allUsers - bonusPool - partner - referral - platform;
     }
 
-    function _applyFeesAndDistributeRewards(uint256 amount, address referrer) 
+    function _applyFeesAndDistributeRewards(uint256 amount, address referrer)
         internal
-        returns(uint256, uint256) 
+        returns(uint256, uint256)
     {
         (
             uint256 fee,
@@ -356,7 +363,6 @@ contract GreenHouse is Ownable {
 
         return (net, fee);
     }
-
     function _processStake(uint256 amount, address referrer) internal {
         (uint256 net, uint256 fee) = _applyFeesAndDistributeRewards(amount, referrer);
         _stakes[msg.sender] += net;
