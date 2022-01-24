@@ -229,9 +229,7 @@ uint256 constant internal BONUS_POOL_NEW_STAKEHOLDER_TIME_ADDITION = 900;   // 1
         _bonusPoolLeaderboardLast++;
         _bonusPoolLeaderboard[_bonusPoolLeaderboardLast] = value;
         _bonusPoolLeaderboardPositionsCount[value] += 1;
-        if((bonusRewardPoolCountdown()+BONUS_POOL_NEW_STAKEHOLDER_TIME_ADDITION) >= BONUS_POOL_TIMER_INITIAL){
-            _bonusPoolTimer += 0;
-        }else{
+        if((bonusRewardPoolCountdown()+BONUS_POOL_NEW_STAKEHOLDER_TIME_ADDITION) < BONUS_POOL_TIMER_INITIAL){
         _bonusPoolTimer += BONUS_POOL_NEW_STAKEHOLDER_TIME_ADDITION;
         }
         emit Timer(bonusRewardPoolCountdown()+BONUS_POOL_NEW_STAKEHOLDER_TIME_ADDITION);
